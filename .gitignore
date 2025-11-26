@@ -1,0 +1,17 @@
+# Godot 4+ specific ignores
+.godot/
+
+# Godot-specific ignores
+*.translation
+*.import
+
+# System/tool-specific ignores
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Build/export directories
+build/
+output/
+exports/
