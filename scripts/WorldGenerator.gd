@@ -1,29 +1,39 @@
 extends MeshInstance3D
 
 @export var seed: int = 1337
-@export_range(0, 5, 1) var subdivisions: int = 5
+@export_range(0, 7, 1) var subdivisions: int = 6
 @export var radius: float = 60.0
 @export var sea_level: float = 0.02
 @export var ocean_bias: float = 0.08
 @export var continent_gain: float = 0.48
 @export var continent_power: float = 1.35
-@export var mountain_gain: float = 0.18
-@export var detail_gain: float = 0.08
-@export var ridge_gain: float = 0.12
+@export var mountain_gain: float = 0.08  # Base value (reduced from 0.18)
+@export var detail_gain: float = 0.06    # Base value (reduced from 0.10)
+@export var ridge_gain: float = 0.06     # Base value (reduced from 0.12)
+
+# Terrain Variation - controls how dramatic/flat the terrain is
+@export_range(0.0, 1.0, 0.05) var plains_coverage: float = 0.4  # How much of land is flat plains
+@export_range(0.0, 1.0, 0.05) var extreme_terrain_chance: float = 0.05  # 5% chance for very mountainous worlds
 @export_range(0, 8, 1) var smooth_iterations: int = 3
 @export_range(0.0, 1.0, 0.05) var smooth_strength: float = 0.5
 @export var plate_count: int = 12
 @export_range(0.0, 1.0, 0.05) var continental_ratio: float = 0.55
-@export var boundary_gain: float = 0.12
-@export var hotspot_gain: float = 0.06
+@export var boundary_gain: float = 0.06  # Reduced from 0.12
+@export var hotspot_gain: float = 0.03  # Reduced from 0.06
 @export var warp_strength: float = 0.15
 @export var warp_frequency: float = 0.8
+
+# Coastline Detail Parameters
+@export_range(0.0, 0.2, 0.01) var coastline_detail_strength: float = 0.08
+@export_range(0.0, 1.0, 0.05) var coastline_erosion_strength: float = 0.4
+@export_range(1.0, 10.0, 0.5) var coastline_frequency: float = 3.5
+@export_range(0.0, 0.1, 0.01) var coastline_band_width: float = 0.06
 
 # LOD System
 @export var enable_lod: bool = true
 @export var lod_distances: Array[float] = [50.0, 80.0, 120.0]
 var _lod_meshes: Array[ArrayMesh] = []
-var _lod_subdivisions: Array[int] = [5, 4, 3]  # LOD 0 = highest quality (close), LOD 2 = lowest (far)
+var _lod_subdivisions: Array[int] = [7, 6, 5]  # LOD 0 = highest quality (~80k verts), LOD 2 = lowest (far)
 var _current_lod: int = -1
 var _camera: Camera3D = null
 var _material: ShaderMaterial = null
@@ -33,9 +43,14 @@ var _continent_noise_detail: FastNoiseLite
 var _detail_noise: FastNoiseLite
 var _ridge_noise: FastNoiseLite
 var _moisture_noise: FastNoiseLite
+var _mid_detail_noise: FastNoiseLite  # Mid-frequency detail for terrain variation
 var _warp_noise_x: FastNoiseLite
 var _warp_noise_y: FastNoiseLite
 var _warp_noise_z: FastNoiseLite
+var _coastline_noise: FastNoiseLite  # High frequency noise for coastline detail
+var _coastline_erosion_noise: FastNoiseLite  # Erosion pattern for natural coastlines
+var _plains_noise: FastNoiseLite  # Large-scale noise for plains regions
+var _terrain_drama: float = 1.0  # Multiplier for terrain height variation (set per-seed)
 var _plates: Array
 var rng_inst: RandomNumberGenerator
 
@@ -67,6 +82,10 @@ func generate() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	rng_inst = rng
+
+	# Calculate terrain drama based on seed - only ~5% worlds are extremely mountainous
+	_terrain_drama = _calculate_terrain_drama(rng)
+
 	_setup_noise(rng)
 	_plates = _generate_plates(rng)
 
@@ -86,6 +105,24 @@ func generate() -> void:
 	else:
 		# Single mesh mode
 		mesh = _generate_mesh_at_subdivision(subdivisions)
+
+# Determines how dramatic/mountainous this world is
+# Returns 0.3-0.6 for most worlds (plains-heavy), 1.5-2.5 for extreme (5%)
+func _calculate_terrain_drama(rng: RandomNumberGenerator) -> float:
+	var roll: float = rng.randf()
+
+	if roll < extreme_terrain_chance:
+		# Extreme mountainous world (5% chance)
+		return rng.randf_range(1.8, 2.5)
+	elif roll < extreme_terrain_chance + 0.15:
+		# Moderately mountainous (15% chance)
+		return rng.randf_range(1.0, 1.5)
+	elif roll < extreme_terrain_chance + 0.15 + 0.30:
+		# Normal varied terrain (30% chance)
+		return rng.randf_range(0.6, 1.0)
+	else:
+		# Plains-dominated world (50% chance)
+		return rng.randf_range(0.3, 0.6)
 
 func _generate_mesh_at_subdivision(subdiv: int) -> ArrayMesh:
 	var ico := _build_icosphere(subdiv, radius)
@@ -160,10 +197,19 @@ func _setup_noise(rng: RandomNumberGenerator) -> void:
 	_detail_noise = FastNoiseLite.new()
 	_detail_noise.seed = int(rng.randi())
 	_detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_detail_noise.frequency = 2.5
-	_detail_noise.fractal_octaves = 2
+	_detail_noise.frequency = 4.0
+	_detail_noise.fractal_octaves = 3
 	_detail_noise.fractal_lacunarity = 2.0
-	_detail_noise.fractal_gain = 0.35
+	_detail_noise.fractal_gain = 0.4
+
+	# Mid-frequency detail for terrain variation (hills, valleys)
+	_mid_detail_noise = FastNoiseLite.new()
+	_mid_detail_noise.seed = int(rng.randi())
+	_mid_detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_mid_detail_noise.frequency = 1.5
+	_mid_detail_noise.fractal_octaves = 3
+	_mid_detail_noise.fractal_lacunarity = 2.0
+	_mid_detail_noise.fractal_gain = 0.5
 
 	_moisture_noise = FastNoiseLite.new()
 	_moisture_noise.seed = int(rng.randi())
@@ -191,6 +237,36 @@ func _setup_noise(rng: RandomNumberGenerator) -> void:
 	_warp_noise_z.frequency = warp_frequency
 	_warp_noise_z.fractal_octaves = 2
 
+	# Coastline detail noise - creates jagged shorelines, bays, and peninsulas
+	_coastline_noise = FastNoiseLite.new()
+	_coastline_noise.seed = int(rng.randi())
+	_coastline_noise.noise_type = FastNoiseLite.TYPE_CELLULAR
+	_coastline_noise.frequency = coastline_frequency
+	_coastline_noise.fractal_octaves = 4
+	_coastline_noise.fractal_lacunarity = 2.2
+	_coastline_noise.fractal_gain = 0.55
+	_coastline_noise.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
+	_coastline_noise.cellular_return_type = FastNoiseLite.RETURN_DISTANCE2_DIV
+
+	# Erosion noise for natural-looking coastline irregularity
+	_coastline_erosion_noise = FastNoiseLite.new()
+	_coastline_erosion_noise.seed = int(rng.randi())
+	_coastline_erosion_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_coastline_erosion_noise.frequency = coastline_frequency * 2.5
+	_coastline_erosion_noise.fractal_octaves = 5
+	_coastline_erosion_noise.fractal_lacunarity = 2.0
+	_coastline_erosion_noise.fractal_gain = 0.6
+	_coastline_erosion_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+
+	# Plains noise - large scale regions that flatten terrain
+	_plains_noise = FastNoiseLite.new()
+	_plains_noise.seed = int(rng.randi())
+	_plains_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_plains_noise.frequency = 0.5  # Large scale regions
+	_plains_noise.fractal_octaves = 2
+	_plains_noise.fractal_lacunarity = 2.0
+	_plains_noise.fractal_gain = 0.5
+
 func _warp_position(n: Vector3) -> Vector3:
 	var wx := _warp_noise_x.get_noise_3d(n.x, n.y, n.z) * warp_strength
 	var wy := _warp_noise_y.get_noise_3d(n.x, n.y, n.z) * warp_strength
@@ -210,10 +286,60 @@ func _sample_height(n: Vector3, plate_base: Dictionary) -> float:
 	var shaped: float = sign(combined) * pow(abs(combined), continent_power)
 	var low_freq: float = shaped * continent_gain - ocean_bias
 
-	var ridge: float = (1.0 - abs(_ridge_noise.get_noise_3d(n.x, n.y, n.z))) * ridge_gain
-	var detail: float = _detail_noise.get_noise_3d(n.x, n.y, n.z) * detail_gain
-	var mountain: float = ridge * (mountain_gain + 0.04 * (1.0 - abs(n.y)))
-	return base_height + boundary_uplift + hotspot + low_freq + mountain + detail
+	# Calculate plains factor - regions where terrain is flattened
+	var plains_value: float = _plains_noise.get_noise_3d(n.x, n.y, n.z)
+	# Convert to 0-1 range and apply threshold based on plains_coverage
+	var plains_threshold: float = 1.0 - plains_coverage * 2.0  # More coverage = lower threshold
+	var plains_factor: float = smoothstep(plains_threshold - 0.2, plains_threshold + 0.2, plains_value)
+	# Invert: high plains_factor = flat terrain (suppress mountains)
+	var terrain_multiplier: float = (1.0 - plains_factor * 0.85) * _terrain_drama
+
+	# Apply terrain drama to mountainous features
+	var effective_ridge_gain: float = ridge_gain * terrain_multiplier
+	var effective_mountain_gain: float = mountain_gain * terrain_multiplier
+	var effective_detail_gain: float = detail_gain * (0.5 + terrain_multiplier * 0.5)  # Detail is less affected
+
+	var ridge: float = (1.0 - abs(_ridge_noise.get_noise_3d(n.x, n.y, n.z))) * effective_ridge_gain
+	var detail: float = _detail_noise.get_noise_3d(n.x, n.y, n.z) * effective_detail_gain
+	var mountain: float = ridge * (effective_mountain_gain + 0.02 * (1.0 - abs(n.y)))
+
+	# Mid-frequency detail (hills, valleys) - only on land, reduced in plains
+	var base_elevation: float = base_height + boundary_uplift + hotspot + low_freq
+	var land_mask: float = clamp((base_elevation - sea_level) / 0.1, 0.0, 1.0)
+	var mid_detail: float = _mid_detail_noise.get_noise_3d(n.x, n.y, n.z) * 0.04 * land_mask * terrain_multiplier
+
+	var pre_coastline_height: float = base_elevation + mountain + detail + mid_detail
+
+	# Coastline detail - apply extra noise near sea level for complex shorelines
+	var coastline_proximity: float = _coastline_band_factor(pre_coastline_height)
+	var coastline_detail: float = 0.0
+	if coastline_proximity > 0.01:
+		# Cellular noise for irregular coastline shapes (bays, peninsulas, islands)
+		var cell_noise: float = _coastline_noise.get_noise_3d(n.x, n.y, n.z)
+		# Erosion noise for fine detail
+		var erosion: float = _coastline_erosion_noise.get_noise_3d(n.x, n.y, n.z)
+		# Combine with asymmetric effect (more land erosion than sea fill)
+		var raw_detail: float = cell_noise * 0.6 + erosion * 0.4
+		# Apply asymmetric erosion - land erodes more than ocean fills
+		if pre_coastline_height > sea_level:
+			coastline_detail = raw_detail * coastline_detail_strength * coastline_proximity * (1.0 + coastline_erosion_strength)
+		else:
+			coastline_detail = raw_detail * coastline_detail_strength * coastline_proximity * (1.0 - coastline_erosion_strength * 0.5)
+
+	return pre_coastline_height + coastline_detail
+
+# GDScript smoothstep implementation
+func smoothstep(edge0: float, edge1: float, x: float) -> float:
+	var t: float = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+# Calculate how close a height is to the coastline (sea_level)
+func _coastline_band_factor(height: float) -> float:
+	var distance_from_sea: float = abs(height - sea_level)
+	if distance_from_sea > coastline_band_width:
+		return 0.0
+	# Smooth falloff from coastline
+	return 1.0 - (distance_from_sea / coastline_band_width)
 
 func _temperature_from_latitude(lat: float, height: float) -> float:
 	var base: float = 1.0 - abs(lat) # equator warm, poles cold
@@ -402,19 +528,38 @@ func _detect_coastlines(heights: PackedFloat32Array, neighbors: Array) -> Packed
 
 	return is_coastline
 
-func _compute_smoothing_weights(heights: PackedFloat32Array, is_coastline: PackedByteArray) -> PackedFloat32Array:
+func _compute_smoothing_weights(heights: PackedFloat32Array, is_coastline: PackedByteArray, neighbors: Array) -> PackedFloat32Array:
 	var weights := PackedFloat32Array()
 	weights.resize(heights.size())
 
+	# First pass: mark vertices near coastlines (within 2 hops)
+	var near_coastline := PackedByteArray()
+	near_coastline.resize(heights.size())
 	for i in range(heights.size()):
 		if is_coastline[i] == 1:
-			weights[i] = 0.1  # Preserve coastlines
+			near_coastline[i] = 2  # Direct coastline
+		else:
+			# Check if neighbor is coastline
+			for n_i in neighbors[i]:
+				if is_coastline[n_i] == 1:
+					near_coastline[i] = 1  # One hop from coastline
+					break
+
+	for i in range(heights.size()):
+		if is_coastline[i] == 1:
+			weights[i] = 0.0  # Completely preserve direct coastline vertices
+		elif near_coastline[i] == 1:
+			weights[i] = 0.15  # Very light smoothing near coastlines
 		elif heights[i] < sea_level:
-			weights[i] = 0.95  # Heavy smoothing for ocean
+			# Gradual smoothing in ocean - less near shore
+			var depth: float = sea_level - heights[i]
+			weights[i] = clamp(0.3 + depth * 4.0, 0.3, 0.9)
 		elif heights[i] > 0.25:
 			weights[i] = 0.2  # Preserve mountain peaks
+		elif heights[i] < sea_level + 0.05:
+			weights[i] = 0.25  # Light smoothing on beaches/low coastal land
 		else:
-			weights[i] = 0.6  # Moderate smoothing for land
+			weights[i] = 0.5  # Moderate smoothing for inland
 
 	return weights
 
@@ -454,8 +599,8 @@ func _smooth_vertices_adaptive(verts: PackedVector3Array, indices: PackedInt32Ar
 	# Detect coastlines
 	var is_coastline := _detect_coastlines(heights, neighbors)
 
-	# Compute adaptive smoothing weights
-	var weights := _compute_smoothing_weights(heights, is_coastline)
+	# Compute adaptive smoothing weights (pass neighbors for near-coastline detection)
+	var weights := _compute_smoothing_weights(heights, is_coastline, neighbors)
 
 	# Taubin smoothing (shrink-free)
 	var lambda_val := strength
