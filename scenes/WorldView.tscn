@@ -1,8 +1,10 @@
-[gd_scene load_steps=4 format=3 uid="uid://cjo1gpjqh6208"]
+[gd_scene load_steps=6 format=3 uid="uid://cjo1gpjqh6208"]
 
 [ext_resource type="Script" uid="uid://dgq4cc6c6sx5v" path="res://scripts/WorldGenerator.gd" id="1"]
 [ext_resource type="Script" uid="uid://cqi22gmdennte" path="res://scripts/OrbitCamera.gd" id="2"]
 [ext_resource type="Script" uid="uid://cps7fstjnihco" path="res://scripts/SeedUI.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/TimeScaleUI.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/ClimateDebugUI.gd" id="5"]
 
 [node name="WorldRoot" type="Node3D"]
 
@@ -44,3 +46,69 @@ placeholder_text = "Seed"
 [node name="ApplyButton" type="Button" parent="UI/MarginContainer/HBoxContainer"]
 layout_mode = 2
 text = "Apply"
+
+[node name="TimeScaleUI" type="CanvasLayer" parent="."]
+script = ExtResource("4")
+world_path = NodePath("../World")
+
+[node name="MarginContainer" type="MarginContainer" parent="TimeScaleUI"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 80.0
+grow_horizontal = 0
+
+[node name="HBoxContainer" type="HBoxContainer" parent="TimeScaleUI/MarginContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="Label" type="Label" parent="TimeScaleUI/MarginContainer/HBoxContainer"]
+layout_mode = 2
+text = "Time Scale:"
+
+[node name="TimeScaleInput" type="LineEdit" parent="TimeScaleUI/MarginContainer/HBoxContainer"]
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+placeholder_text = "1.0"
+
+[node name="ApplyButton" type="Button" parent="TimeScaleUI/MarginContainer/HBoxContainer"]
+layout_mode = 2
+text = "Apply"
+
+[node name="ClimateDebugUI" type="CanvasLayer" parent="."]
+script = ExtResource("5")
+world_path = NodePath("../World")
+
+[node name="MarginContainer" type="MarginContainer" parent="ClimateDebugUI"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -120.0
+offset_right = 280.0
+offset_bottom = -20.0
+grow_vertical = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ClimateDebugUI/MarginContainer"]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="ClimateDebugUI/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="ClimateDebugUI/MarginContainer/VBoxContainer/HBoxContainer"]
+layout_mode = 2
+text = "Climate View:"
+
+[node name="ModeButton" type="OptionButton" parent="ClimateDebugUI/MarginContainer/VBoxContainer/HBoxContainer"]
+custom_minimum_size = Vector2(150, 32)
+layout_mode = 2
+
+[node name="ModeLabel" type="Label" parent="ClimateDebugUI/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+theme_override_font_sizes/font_size = 12
+text = "Original biome rendering"
+autowrap_mode = 2
