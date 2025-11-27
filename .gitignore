@@ -15,3 +15,6 @@
 build/
 output/
 exports/
+
+# Claude Code local settings
+.claude/settings.local.json
