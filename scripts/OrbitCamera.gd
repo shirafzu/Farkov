@@ -17,6 +17,11 @@ var _drag_touch_id: int = -1
 var _current_dir: Vector3 = Vector3(0, 0, 1)
 var _target_dir: Vector3 = Vector3(0, 0, 1)
 
+# Pinch zoom tracking
+var _touch_points: Dictionary = {}  # touch_id -> position
+var _pinch_start_distance: float = 0.0
+var _pinch_start_zoom: float = 0.0
+
 @onready var _target: Node3D = get_node_or_null(target_path)
 
 func _ready() -> void:
@@ -37,16 +42,56 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _dragging:
 		_orbit(event.relative)
 	elif event is InputEventScreenTouch:
-		if event.pressed and _drag_touch_id == -1:
+		_handle_touch(event)
+	elif event is InputEventScreenDrag:
+		_handle_drag(event)
+	elif event is InputEventMagnifyGesture:
+		_zoom((1.0 - event.factor) * 5.0)
+
+func _handle_touch(event: InputEventScreenTouch) -> void:
+	if event.pressed:
+		_touch_points[event.index] = event.position
+		if _touch_points.size() == 1:
+			# Single finger - start drag
 			_drag_touch_id = event.index
 			_dragging = true
-		elif not event.pressed and event.index == _drag_touch_id:
+		elif _touch_points.size() == 2:
+			# Two fingers - start pinch zoom
+			_dragging = false
+			_start_pinch_zoom()
+	else:
+		_touch_points.erase(event.index)
+		if event.index == _drag_touch_id:
 			_drag_touch_id = -1
 			_dragging = false
-	elif event is InputEventScreenDrag and event.index == _drag_touch_id:
+		# If one finger remains after releasing, resume drag with that finger
+		if _touch_points.size() == 1:
+			_drag_touch_id = _touch_points.keys()[0]
+			_dragging = true
+
+func _handle_drag(event: InputEventScreenDrag) -> void:
+	_touch_points[event.index] = event.position
+
+	if _touch_points.size() == 2:
+		# Pinch zoom active
+		_update_pinch_zoom()
+	elif _touch_points.size() == 1 and event.index == _drag_touch_id:
+		# Single finger drag for orbit
 		_orbit(event.relative)
-	elif event is InputEventMagnifyGesture:
-		_zoom(event.factor * 10.0)
+
+func _start_pinch_zoom() -> void:
+	var points: Array = _touch_points.values()
+	_pinch_start_distance = points[0].distance_to(points[1])
+	_pinch_start_zoom = distance
+
+func _update_pinch_zoom() -> void:
+	var points: Array = _touch_points.values()
+	var current_distance: float = points[0].distance_to(points[1])
+
+	if _pinch_start_distance > 0.0:
+		var zoom_ratio: float = _pinch_start_distance / current_distance
+		distance = clamp(_pinch_start_zoom * zoom_ratio, min_distance, max_distance)
+		_update_transform()
 
 func _orbit(relative: Vector2) -> void:
 	_yaw -= relative.x * orbit_speed * 0.01
